@@ -1,0 +1,114 @@
+#!/usr/bin/python
+import os
+import sys
+import time
+import BaseHTTPServer
+import select
+import threading
+import signal
+import Queue
+import socket
+import urlparse
+
+PORT = 8000
+COPY = False
+
+HTML_PATH = os.path.dirname(os.path.realpath(__file__)) + '/consoler.html'
+if not os.path.exists(HTML_PATH):
+	raise Exception('Unable to find consoler.html using %r' % HTML_PATH)
+Q = Queue.Queue()
+SHUTDOWN_EVENT = threading.Event()
+LINES = []
+
+class MyHandler(BaseHTTPServer.BaseHTTPRequestHandler):
+	def log_request(self, *args):
+		# Do not litter STDOUT
+		pass
+	def do_GET(self):
+		if self.path == '/events':
+			self.__serveEvents()
+		else:
+			self.__serveHtml()
+	def __serveHtml(self):
+		with open(HTML_PATH) as f:
+			html = f.read()
+		try:
+			self.send_response(200)
+			self.send_header('Content-type', 'text/html')
+			self.end_headers()
+			self.wfile.write(html)
+		except socket.error as e:
+			self.__handleSocketError(e)
+	def __serveEvents(self):
+		try:
+			self.send_response(200)
+			self.send_header('Content-type', 'text/event-stream')
+			self.send_header('Cache-Control', 'no-cache');
+			self.end_headers()
+			#path = urlparse.urlparse(self.path)
+			#params = urlparse.parse_qs(path.query)
+			lastEventId = 0
+			if self.headers.get('Last-Event-ID'):
+				lastEventId = int(self.headers.get('Last-Event-ID'))
+			for i in range(lastEventId, len(LINES) - 1):
+				self.__writeLine(i)
+			while not SHUTDOWN_EVENT.isSet():
+				try:
+					line = Q.get(True, 1.0/16)
+					line = line.replace('\n', '').replace('\r', '')
+					LINES.append(line)
+					lineId = len(LINES) - 1
+					if lineId > lastEventId:
+						lastEventId = lineId
+						self.__writeLine(lineId)
+					else:
+						# Chrome cannot refresh until received anything
+						self.wfile.write('data:\n\n')
+				except Queue.Empty:
+					pass
+		except socket.error as e:
+			self.__handleSocketError(e)
+	def __writeLine(self, lineId):
+		line = LINES[lineId]
+		#self.wfile.write('event: line\n')
+		self.wfile.write('id: %d\n' % lineId)
+		# ^ char is for lines beginning with space
+		self.wfile.write('data: ^%s\n\n' % line)
+	def __handleSocketError(self, e):
+		if e.errno == 32: # Broken pipe
+			pass
+		else:
+			raise
+
+
+class HttpServerThread(threading.Thread):
+	def __init__(self):
+		threading.Thread.__init__(self)
+		self.httpd = BaseHTTPServer.HTTPServer(('', PORT), MyHandler)
+	def run(self):
+		print 'Consoler serves HTTP at port', PORT
+		self.httpd.serve_forever()
+	def shutdown(self):
+		print 'Consoler shutting down'
+		SHUTDOWN_EVENT.set()
+		self.httpd.shutdown()
+hst = HttpServerThread()
+hst.start()
+hst.join(1.0/256)
+
+p = select.poll()
+p.register(sys.stdin)
+try:
+	while True:
+		fds = p.poll()
+		line = sys.stdin.readline()
+		if COPY:
+			sys.stdout.write(line)
+		if not line:
+			break
+		Q.put(line)
+except KeyboardInterrupt:
+	pass
+finally:
+	hst.shutdown()
+print
