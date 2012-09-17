@@ -15,7 +15,7 @@ PORT = 8000
 HTML_PATH = os.path.dirname(os.path.realpath(__file__)) + '/consoler.html'
 if not os.path.exists(HTML_PATH):
 	raise Exception('Unable to find consoler.html using %r' % HTML_PATH)
-Q = Queue()
+Q = Queue.Queue()
 
 class MyHandler(BaseHTTPServer.BaseHTTPRequestHandler):
 	def do_GET(self):
@@ -36,12 +36,13 @@ class MyHandler(BaseHTTPServer.BaseHTTPRequestHandler):
 		self.send_header('Content-type', 'text/event-stream')
 		self.send_header('Cache-Control', 'no-cache');
 		self.end_headers()
-		for i in xrange(1000):
-			line = Q.get()
-			self.wfile.write('data: %r\n\n' % line)
-			self.wfile.flush()
-			print 'event ', i
-			time.sleep(1)
+		while True:
+			try:
+				line = Q.get(True, 1.0/16)
+				self.wfile.write('data: %r\n\n' % line)
+				print 'Sent event %r' % line
+			except Queue.Empty:
+				pass
 			if SHUTDOWN_EVENT.isSet():
 				break;
 class HttpServerThread(threading.Thread):
@@ -53,12 +54,11 @@ class HttpServerThread(threading.Thread):
 		self.httpd.serve_forever()
 	def shutdown(self):
 		print 'Consoler shuts down'
-		global SHUTDOWN_EVENT
 		SHUTDOWN_EVENT.set()
 		self.httpd.shutdown()
 hst = HttpServerThread()
 hst.start()
-hst.join(1/256)
+hst.join(1.0/256)
 
 stdin = ''
 p = select.poll()
