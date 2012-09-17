@@ -1,11 +1,22 @@
 <!doctype html>
 <html>
 <head>
+<style>
+body {
+	background-color: #240029;
+	color: #dcdcdc;
+	font-family: monospace;
+}
+</style>
 <script>
-
 var es = new EventSource('/events');
-es.addEventListener('message', function() {
-	console.log(arguments);
+es.addEventListener('message', function(event) {
+	console.log(event.data)
+	var divEl = document.createElement('div');
+	var line = event.data.substr(1)// Remove ^ char at the beginning
+	divEl.innerText = line;
+	var stdoutEl = document.getElementById('stdout');
+	stdoutEl.appendChild(divEl)
 }, false);
 
 es.addEventListener('open', function() {
@@ -21,5 +32,6 @@ es.addEventListener('error', function(e) {
 </script>
 </head>
 <body>
+<div id="stdout"></div>
 </body>
 </html>

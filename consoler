@@ -6,9 +6,8 @@ import BaseHTTPServer
 import select
 import threading
 import signal
-import tty
 import Queue
-
+import socket
 
 SHUTDOWN_EVENT = threading.Event()
 PORT = 8000
@@ -19,7 +18,6 @@ Q = Queue.Queue()
 
 class MyHandler(BaseHTTPServer.BaseHTTPRequestHandler):
 	def do_GET(self):
-		print self.path
 		if self.path == '/events':
 			self.serveEvents()
 		else:
@@ -36,13 +34,16 @@ class MyHandler(BaseHTTPServer.BaseHTTPRequestHandler):
 		self.send_header('Content-type', 'text/event-stream')
 		self.send_header('Cache-Control', 'no-cache');
 		self.end_headers()
-		while True:
+		while 1:
 			try:
 				line = Q.get(True, 1.0/16)
-				self.wfile.write('data: %r\n\n' % line)
-				print 'Sent event %r' % line
+				line = line.replace('\n', '').replace('\r', '')
+				# ^ char is for lines beginning with space
+				self.wfile.write('data: ^%s\n\n' % line)
 			except Queue.Empty:
 				pass
+			except socket.error as e:
+				break
 			if SHUTDOWN_EVENT.isSet():
 				break;
 class HttpServerThread(threading.Thread):
@@ -53,14 +54,13 @@ class HttpServerThread(threading.Thread):
 		print 'Consoler serves HTTP at port', PORT
 		self.httpd.serve_forever()
 	def shutdown(self):
-		print 'Consoler shuts down'
+		print 'Consoler''s shutting down'
 		SHUTDOWN_EVENT.set()
 		self.httpd.shutdown()
 hst = HttpServerThread()
 hst.start()
 hst.join(1.0/256)
 
-stdin = ''
 p = select.poll()
 p.register(sys.stdin)
 try:
