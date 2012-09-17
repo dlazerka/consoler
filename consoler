@@ -1,0 +1,75 @@
+#!/usr/bin/python
+import os
+import sys
+import time
+import BaseHTTPServer
+import select
+import threading
+import signal
+import tty
+
+
+SHUTDOWN_EVENT = threading.Event()
+PORT = 8000
+HTML_PATH = os.path.dirname(os.path.realpath(__file__)) + '/consoler.html'
+if not os.path.exists(HTML_PATH):
+	raise Exception('Unable to find consoler.html using %r' % HTML_PATH)
+
+class MyHandler(BaseHTTPServer.BaseHTTPRequestHandler):
+	def do_GET(self):
+		print self.path
+		if self.path == '/events':
+			self.serveEvents()
+		else:
+			self.serveHtml()
+	def serveHtml(self):
+		with open(HTML_PATH) as f:
+			html = f.read()
+		self.send_response(200)
+		self.send_header('Content-type', 'text/html')
+		self.end_headers()
+		self.wfile.write(html)
+	def serveEvents(self):
+		self.send_response(200)
+		self.send_header('Content-type', 'text/event-stream')
+		self.send_header('Cache-Control', 'no-cache');
+		self.end_headers()
+		for i in xrange(1000):
+			self.wfile.write('data: msg %r\n\n' % i)
+			self.wfile.flush()
+			print 'event ', i
+			time.sleep(1)
+			if SHUTDOWN_EVENT.isSet():
+				break;
+class HttpServerThread(threading.Thread):
+	def __init__(self):
+		threading.Thread.__init__(self)
+		self.httpd = BaseHTTPServer.HTTPServer(('', PORT), MyHandler)
+	def run(self):
+		print 'Consoler serves HTTP at port', PORT
+		self.httpd.serve_forever()
+	def shutdown(self):
+		print 'Consoler shuts down'
+		global SHUTDOWN_EVENT
+		SHUTDOWN_EVENT.set()
+		self.httpd.shutdown()
+hst = HttpServerThread()
+hst.start()
+hst.join(1/16)
+
+stdin = ''
+p = select.poll()
+p.register(sys.stdin)
+try:
+	while True:
+		fds = p.poll()
+		line = sys.stdin.readline()
+		sys.stdout.write(line)
+		if not line:
+			break
+		stdin = '%s%s' % (stdin, line)
+except KeyboardInterrupt:
+	pass
+finally:
+	hst.shutdown()
+print
