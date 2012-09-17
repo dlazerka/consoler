@@ -7,6 +7,7 @@ import select
 import threading
 import signal
 import tty
+import Queue
 
 
 SHUTDOWN_EVENT = threading.Event()
@@ -14,6 +15,7 @@ PORT = 8000
 HTML_PATH = os.path.dirname(os.path.realpath(__file__)) + '/consoler.html'
 if not os.path.exists(HTML_PATH):
 	raise Exception('Unable to find consoler.html using %r' % HTML_PATH)
+Q = Queue()
 
 class MyHandler(BaseHTTPServer.BaseHTTPRequestHandler):
 	def do_GET(self):
@@ -35,7 +37,8 @@ class MyHandler(BaseHTTPServer.BaseHTTPRequestHandler):
 		self.send_header('Cache-Control', 'no-cache');
 		self.end_headers()
 		for i in xrange(1000):
-			self.wfile.write('data: msg %r\n\n' % i)
+			line = Q.get()
+			self.wfile.write('data: %r\n\n' % line)
 			self.wfile.flush()
 			print 'event ', i
 			time.sleep(1)
@@ -55,7 +58,7 @@ class HttpServerThread(threading.Thread):
 		self.httpd.shutdown()
 hst = HttpServerThread()
 hst.start()
-hst.join(1/16)
+hst.join(1/256)
 
 stdin = ''
 p = select.poll()
@@ -67,7 +70,7 @@ try:
 		sys.stdout.write(line)
 		if not line:
 			break
-		stdin = '%s%s' % (stdin, line)
+		Q.put(line)
 except KeyboardInterrupt:
 	pass
 finally:
