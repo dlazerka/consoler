@@ -24,6 +24,10 @@ SHUTDOWN_EVENT = threading.Event()
 LINES = []
 EOF = 0
 
+def log(*s):
+	if options.hide:
+		print ' '.join(map(str, s))
+
 class MyHandler(SimpleHTTPRequestHandler):
 	def log_request(self, *args):
 		if options.hide:
@@ -44,6 +48,7 @@ class MyHandler(SimpleHTTPRequestHandler):
 			lastEventId = 0
 			if self.headers.get('Last-Event-ID'):
 				lastEventId = int(self.headers.get('Last-Event-ID'))
+				log('Last-Event-ID:', lastEventId)
 			for i in range(lastEventId, len(LINES) - 1):
 				self.__writeLine(i)
 			while not SHUTDOWN_EVENT.isSet():
@@ -56,23 +61,23 @@ class MyHandler(SimpleHTTPRequestHandler):
 					line = line.replace('\n', '').replace('\r', '')
 					LINES.append(line)
 					lineId = len(LINES) - 1
-					if lineId > lastEventId:
-						self.__writeLine(lineId)
+					self.__writeLine(lineId)
 				except Queue.Empty:
 					# Try to write anything to spawn excepton if client closed connection
 					# otherwise server will hangs here.
-					self.wfile.write(' ')
+					self.wfile.write(':\n')
 		except socket.error as e:
 			self.__handleSocketError(e)
 		finally:
 			self.wfile.close()
 	def __writeLine(self, lineId):
 		line = LINES[lineId]
-		self.wfile.write('event: line\n')
+
+		self.wfile.write('\n\nevent: line\n')
 		self.wfile.write('id: %d\n' % lineId)
-		# ^ char is for lines beginning with space
-		self.wfile.write('data: ^%s\n\n' % line)
+		self.wfile.write('data: %s\n\n' % line)
 	def __handleSocketError(self, e):
+		log(e)
 		if e.errno == 32: # Broken pipe
 			pass
 		else:
@@ -104,9 +109,11 @@ try:
 			sys.stdout.write(line)
 		if not line:
 			Q.put(EOF)
+			time.sleep(0.125)
+			#Q.join() wouldn't work because /events may not be called at all
+			break
 		Q.put(line)
 except KeyboardInterrupt:
-	pass
+	print
 finally:
 	hst.shutdown()
-print

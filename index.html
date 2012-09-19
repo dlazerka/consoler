@@ -1,0 +1,107 @@
+<!doctype html>
+<html>
+<head>
+<style>
+body {
+	margin: 0;
+	font-family: monospace;
+	font-size: 14px;
+	color: #dcdcdc;
+	background-color: #240029;
+}
+#out {
+	padding: 3px;
+}
+#controls {
+	background-color: black;
+	border-bottom: 1px gray solid;
+	height: 20px;
+	padding: 3px 3px 0 3px;
+}
+#connectionState {
+	width: 128px;
+}
+.control {
+	float: left;
+}
+.clickable {
+	text-decoration: underline;
+	cursor: pointer;
+}
+.line {
+	white-space: pre-wrap;
+}
+</style>
+<script src="jquery.min.js"></script>
+<script>
+ES = null;
+LAST_EVENT_ID = null;
+function connect() {
+	ES = new EventSource('/events');
+	$(ES).on('line', function(event) {
+		event = event.originalEvent;
+		var lastEventId = Number(event.lastEventId)
+		if (lastEventId < LAST_EVENT_ID)
+			return;
+		LAST_EVENT_ID = lastEventId
+		console.log(event);
+		var divEl = $('<div class="line">');
+		divEl.text(event.data);
+		var stdoutEl = $('#out');
+		stdoutEl.append(divEl);
+	});
+	$(ES).on('eof', function(event) {
+		event = event.originalEvent;
+		console.log(event);
+		ES.close();
+		ES = null;
+		updateStatus();
+		$('#connectionState').text('EOF');
+	});
+	$(ES).on('open', function() {
+		updateStatus();
+	});
+	$(ES).on('error', function(e) {
+		updateStatus();
+	});
+}
+function updateStatus() {
+	if (ES == null) {
+		$('#connect').show();
+		$('#disconnect').hide();
+	} else if (ES.readyState == ES.CLOSED) {
+		$('#connectionState').text('Disconnected');
+		$('#connect').show();
+		$('#disconnect').hide();
+	} else if (ES.readyState == ES.OPEN) {
+		$('#connectionState').text('Listening');
+		$('#connect').hide();
+		$('#disconnect').show();
+	} else { // CONNECTING
+		$('#connectionState').text('Connecting');
+		$('#connect').hide();
+		$('#disconnect').show();
+	}
+}
+$(function() {
+	connect();
+	$('#disconnect').on('click', function() {
+		ES.close();
+		updateStatus();
+	});
+	$('#connect').on('click', function() {
+		connect();
+		updateStatus();
+	});
+});
+</script>
+</head>
+<body>
+<div id="controls">
+	<div id="connectionState" class="control">Disconnected</div>
+	<div id="disconnect" class="control clickable">Disconnect</div>
+	<div id="connect" class="control clickable" style="display: none">Connect</div>
+</div>
+<div id="out"></div>
+</body>
+</html>
