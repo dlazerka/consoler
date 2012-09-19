@@ -1,8 +1,10 @@
 #!/usr/bin/python
+from optparse import OptionParser
 import os
 import sys
 import time
-import BaseHTTPServer
+from BaseHTTPServer import HTTPServer
+from SimpleHTTPServer import SimpleHTTPRequestHandler
 import select
 import threading
 import signal
@@ -10,35 +12,27 @@ import Queue
 import socket
 import urlparse
 
-PORT = 8000
-COPY = False
+parser = OptionParser()
+parser.add_option('-p', '--port',  type='int', dest='port',
+	default=8000, help='Port to serve on')
+parser.add_option('--hide',  action='store_true', dest='hide',
+	help='Do not stream incoming data to console, only to browser')
+(options, args) = parser.parse_args()
 
-HTML_PATH = os.path.dirname(os.path.realpath(__file__)) + '/consoler.html'
-if not os.path.exists(HTML_PATH):
-	raise Exception('Unable to find consoler.html using %r' % HTML_PATH)
 Q = Queue.Queue()
 SHUTDOWN_EVENT = threading.Event()
 LINES = []
+EOF = 0
 
-class MyHandler(BaseHTTPServer.BaseHTTPRequestHandler):
+class MyHandler(SimpleHTTPRequestHandler):
 	def log_request(self, *args):
-		# Do not litter STDOUT
-		pass
+		if options.hide:
+			SimpleHTTPRequestHandler.log_request(self, *args)
 	def do_GET(self):
 		if self.path == '/events':
 			self.__serveEvents()
-		else:
-			self.__serveHtml()
-	def __serveHtml(self):
-		with open(HTML_PATH) as f:
-			html = f.read()
-		try:
-			self.send_response(200)
-			self.send_header('Content-type', 'text/html')
-			self.end_headers()
-			self.wfile.write(html)
-		except socket.error as e:
-			self.__handleSocketError(e)
+		elif self.path in ('/', '/jquery.min.js'):
+			SimpleHTTPRequestHandler.do_GET(self)
 	def __serveEvents(self):
 		try:
 			self.send_response(200)
@@ -54,7 +48,11 @@ class MyHandler(BaseHTTPServer.BaseHTTPRequestHandler):
 				self.__writeLine(i)
 			while not SHUTDOWN_EVENT.isSet():
 				try:
-					line = Q.get(True, 1.0/4)
+					line = Q.get(True, 1.0/2)
+					if line == EOF:
+						self.wfile.write('event: eof\n')
+						self.wfile.write('data:\n\n')
+						break
 					line = line.replace('\n', '').replace('\r', '')
 					LINES.append(line)
 					lineId = len(LINES) - 1
@@ -66,9 +64,11 @@ class MyHandler(BaseHTTPServer.BaseHTTPRequestHandler):
 					self.wfile.write(' ')
 		except socket.error as e:
 			self.__handleSocketError(e)
+		finally:
+			self.wfile.close()
 	def __writeLine(self, lineId):
 		line = LINES[lineId]
-		#self.wfile.write('event: line\n')
+		self.wfile.write('event: line\n')
 		self.wfile.write('id: %d\n' % lineId)
 		# ^ char is for lines beginning with space
 		self.wfile.write('data: ^%s\n\n' % line)
@@ -82,9 +82,9 @@ class MyHandler(BaseHTTPServer.BaseHTTPRequestHandler):
 class HttpServerThread(threading.Thread):
 	def __init__(self):
 		threading.Thread.__init__(self)
-		self.httpd = BaseHTTPServer.HTTPServer(('', PORT), MyHandler)
+		self.httpd = HTTPServer(('', options.port), MyHandler)
 	def run(self):
-		print 'Consoler serves HTTP at port', PORT
+		print 'Consoler serves HTTP at port', options.port
 		self.httpd.serve_forever()
 	def shutdown(self):
 		SHUTDOWN_EVENT.set()
@@ -100,10 +100,10 @@ try:
 	while True:
 		fds = p.poll()
 		line = sys.stdin.readline()
-		if COPY:
+		if not options.hide:
 			sys.stdout.write(line)
 		if not line:
-			break
+			Q.put(EOF)
 		Q.put(line)
 except KeyboardInterrupt:
 	pass

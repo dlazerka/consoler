@@ -10,23 +10,44 @@ body {
 	background-color: #240029;
 }
 #out {
+	padding: 3px;
 }
 #controls {
 	background-color: black;
 	border-bottom: 1px gray solid;
 	height: 20px;
+	padding: 3px 3px 0 3px;
+}
+#connectionState {
+	width: 128px;
+}
+.control {
+	float: left;
+	border-right: 1px #333 solid;
+}
+.clickable {
+	text-decoration: underline;
+	cursor: pointer;
 }
 </style>
+<script src="jquery.min.js"></script>
 <script>
 window.onload = function() {
-var connectionStateEl = document.getElementById('connectionState');
+function $(id) {
+	return document.getElementById(id);
+};
+var connectionStateEl = $('connectionState');
 var es = new EventSource('/events');
 es.addEventListener('message', function(event) {
-	console.log(event.data)
+	console.log(event);
+	if (event.type == 'eof') {
+		disconnect();
+		return;
+	}
 	var divEl = document.createElement('div');
 	var line = event.data.substr(1)// Remove ^ char at the beginning
 	divEl.innerText = line;
-	var stdoutEl = document.getElementById('out');
+	var stdoutEl = $('out');
 	stdoutEl.appendChild(divEl)
 }, false);
 
@@ -40,12 +61,18 @@ es.addEventListener('error', function(e) {
     // Connection was closed.
   }
 }, false);
+function disconnect() {
+}
+document.getElementById('disconnect').onclick = function() {
+	es.close();
+	connectionStateEl.innerText = 'Disconnected';
 };
 </script>
 </head>
 <body>
 <div id="controls">
-	<div id="connectionState"></div>
+	<div id="connectionState" class="control"></div>
+	<div id="disconnect" class="clickable">Disconnect</div>
 </div>
 <div id="out"></div>
 </body>
